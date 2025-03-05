@@ -32,13 +32,12 @@ llm = AzureChatOpenAI(
     temperature=0.7
 )
 
-# Create two columns
-# Create two columns with adjusted ratio (1.5:1 instead of 2:1)
-col1, col2 = st.columns([1, 1.5])
+# In the sidebar
+with st.sidebar:
+    st.header("Upload Excel Files")
 
-with col1:
     # File upload section
-    uploaded_files = st.file_uploader("Upload Excel Files", type=['xlsx', 'xls'], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("", type=['xlsx', 'xls'], accept_multiple_files=True)
 
     if uploaded_files:
         for file in uploaded_files:
@@ -54,9 +53,10 @@ with col1:
             "Select file to analyze:",
             options=list(st.session_state.dfs.keys())
         )
-
-        st.subheader(f"Preview: {selected_file}")
-        st.dataframe(st.session_state.dfs[selected_file].head())
+        # Show preview
+        if selected_file:
+            st.subheader(f"Preview: {selected_file}")
+            st.dataframe(st.session_state.dfs[selected_file].head())
 
         # Merge option
         if len(st.session_state.dfs) > 1 and st.button("Merge All Files"):
@@ -67,10 +67,10 @@ with col1:
             except Exception as e:
                 st.error(f"Merge error: {str(e)}")
 
-with col2:
-    st.subheader("Chat with your Data")
+# Main chat area
+st.header("Chat with your Data")
 
-    if st.session_state.dfs:
+if st.session_state.dfs:
         chat_source = st.radio(
             "Choose data source:",
             ["Selected File", "Merged Data"] if st.session_state.merged_df is not None else ["Selected File"]
@@ -93,6 +93,12 @@ with col2:
                     if user_input:  # Remove last_input check
                         try:
                             response = smart_df.chat(user_input)
+                            # Check if response is a DataFrame
+                            if isinstance(response, pd.DataFrame):
+                                st.table(response)  # Display as table
+                            else:
+                                st.write(response)  # Display as regular text
+
                             st.session_state.messages.append({"role": "user", "content": user_input})
                             st.session_state.messages.append({"role": "assistant", "content": str(response)})
                         except Exception as e:
