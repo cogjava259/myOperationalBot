@@ -37,7 +37,7 @@ with st.sidebar:
     st.header("Upload Excel Files")
 
     # File upload section
-    uploaded_files = st.file_uploader("", type=['xlsx', 'xls'], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Supported files format - xlsx and xls", type=['xlsx', 'xls'], accept_multiple_files=True)
 
     if uploaded_files:
         for file in uploaded_files:
