@@ -115,3 +115,81 @@ if st.session_state.dfs:
                     st.error(f"Error processing data: {str(e)}")
         except Exception as e:
             st.error(f"Error processing data: {str(e)}")
+
+# After the file preview section, add dashboard components
+if st.session_state.dfs and selected_file:
+    st.markdown("---")
+    st.header("📊 Interactive Dashboard")
+
+    # Get current dataframe
+    df = st.session_state.dfs[selected_file]
+
+    # Create two columns for metrics and charts
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Data Overview")
+        # Display key metrics
+        total_rows = len(df)
+        total_cols = len(df.columns)
+        st.metric("Total Records", total_rows)
+        st.metric("Total Columns", total_cols)
+
+        # Column statistics
+        st.subheader("Column Statistics")
+        selected_column = st.selectbox(
+            "Select column for statistics:",
+            options=df.select_dtypes(include=['int64', 'float64']).columns
+        )
+        if selected_column:
+            stats = df[selected_column].describe()
+            st.dataframe(stats)
+
+    with col2:
+        st.subheader("Data Visualization")
+        # Chart type selector
+        chart_type = st.selectbox(
+            "Select chart type:",
+            ["Bar Chart", "Line Chart", "Scatter Plot"]
+        )
+
+        # Get columns for X and Y axis
+        x_col = st.selectbox("Select X-axis:", options=df.columns, key="x_axis")
+        y_col = st.selectbox("Select Y-axis:",
+                             options=df.select_dtypes(include=['int64', 'float64']).columns,
+                             key="y_axis")
+
+        # Create charts based on selection
+        if chart_type == "Bar Chart":
+            st.bar_chart(data=df, x=x_col, y=y_col)
+        elif chart_type == "Line Chart":
+            st.line_chart(data=df, x=x_col, y=y_col)
+        elif chart_type == "Scatter Plot":
+            st.scatter_chart(data=df, x=x_col, y=y_col)
+
+    # Add data filtering options
+    st.subheader("Data Filters")
+    with st.expander("Filter Data"):
+        filter_col = st.selectbox("Select column to filter:", options=df.columns)
+        if df[filter_col].dtype in ['int64', 'float64']:
+            min_val = float(df[filter_col].min())
+            max_val = float(df[filter_col].max())
+            filter_range = st.slider(
+                f"Select range for {filter_col}",
+                min_val, max_val,
+                (min_val, max_val)
+            )
+            filtered_df = df[
+                (df[filter_col] >= filter_range[0]) &
+                (df[filter_col] <= filter_range[1])
+                ]
+        else:
+            unique_vals = df[filter_col].unique()
+            selected_vals = st.multiselect(
+                f"Select values for {filter_col}",
+                options=unique_vals,
+                default=unique_vals
+            )
+            filtered_df = df[df[filter_col].isin(selected_vals)]
+
+        st.dataframe(filtered_df)
