@@ -5,6 +5,37 @@ from pandasai import SmartDatalake
 from langchain_openai import AzureChatOpenAI
 import os
 
+# Define system messages for different report types
+SYSTEM_MESSAGES = {
+    "Allocation Report": """You are an allocation report analysis assistant. You are a helpful operational assistant who is an expert in handling datasets. 
+    If a user asks to get the utilization percentage then calculate the ratio of sum of allocation percentage where associate billability is any of BTM, BFD, BTB and sum of allocation percentage for all associate billability types.
+    If a user asks to get the on off ratio or onsite offshore ratio then calculate the ratio of sum of allocation percentage 
+    where OffShoreOnsite is ON and sum of allocation percentage for all OffShoreOnsite types.
+    """,
+
+    "Per Report": """You are a performance report analyst. Focus on:
+- Individual performance metrics
+- Time-based trends
+- KPI analysis
+- Growth patterns
+- Performance comparisons""",
+
+    "Others": """You are a general data analysis assistant. Focus on:
+- Data insights
+- Pattern recognition
+- Statistical analysis
+- Trend identification"""
+}
+
+# Add predefined prompts
+PREDEFINED_PROMPTS = {
+    "Calculate Utilization %": "What is the utilization percentage?",
+    "Calculate Onsite/Offshore Ratio": "What is the on off ratio?",
+    "Calculate PA Minus Ratio": "Consider  if GradeDescription has value as either Existing - P & e or  Existing - PA & e or Existing - PAT & e or Existing - PT & e  understand as ""PA-"" or ""PA minus"". Consider the sum of AllocationPercentage of ""PA-"" as ""PA Minus up ratio"". Consider the sum of all valules of AllocationPercentage column as Total Allocation Percentage.  Consider ""PA Minus Ratio"" is the value of ""PA Minus up ratio"" divided by Total Allocation Percentage. what is ""PA   Minus Ratio"" showing upto 4 decimal points.",
+    "Calculate Span": "Consider GradeDescription has value as either Business Associate 35 or Business Associate 50 or Business Associate 60 or Existing - AVP & e or Existing - D & e or Existing - SA & e or Existing - Sr. Director & e or Existing - VP & e or Existing-AD&e or Existing-M&e or Existing-SM&e or New-SM&e understand as ""SA+"" and Business Associate 65 or Existing - A & e or Existing - P & e or Existing - PA & e or Existing - PAT & e or Existing - PT & e understand as ""A-"". Consider Span Calculation as sum of AllocationPercentage of ""A-"" divided by sum of AllocationPercentage of ""SA+"". What is span Calulcation.",
+    "Calculate M+": "Consider GradeDescription has value as either Business Associate 35 or Business Associate 50 or Existing - AVP & e or Existing - D & e or Existing - Sr. Director & e or Existing - VP & e or Existing-AD&e or Existing-M&e or Existing-SM&e or New-SM&e understand as ""M+"".Consider the sum of all valules of AllocationPercentage column as Total Allocation Percentage. Consider M+ Calculation as sum of AllocationPercentage of ""M+"" divided by Total Allocation Percentage. What is M+ Calculation.",
+    "Custom Query": "Type your own query..."
+}
 
 # Page config
 st.set_page_config(page_title="Multi-File Excel Analyzer & Chat", layout="wide")
@@ -22,23 +53,38 @@ if "merged_df" not in st.session_state:
     st.session_state.merged_df = None
 if "current_df" not in st.session_state:
     st.session_state.current_df = None
+if "file_types" not in st.session_state:
+    st.session_state.file_types = {}
 
-# Initialize LLM
-llm = AzureChatOpenAI(
-    azure_deployment='',
-    api_key='',
-    api_version='',
-    azure_endpoint='',
-    temperature=0.7
-)
+# Initialize session state for report type
+if "report_type" not in st.session_state:
+    st.session_state.report_type = "Others"
 
 # In the sidebar
 with st.sidebar:
     st.header("Upload Excel Files")
 
+    # Report type selection
+    selected_report_type = st.selectbox(
+        "Select Report Type:",
+        ["Allocation Report", "BPO Report", "Others"],
+        key="report_type_selector"
+    )
+    st.session_state.report_type = selected_report_type
+    # Initialize LLM
+    llm = AzureChatOpenAI(
+        azure_deployment='',
+        api_key='',
+        api_version='',  ### get it from Target URL instead of from screen
+        azure_endpoint='',
+        temperature=0.7
+    )
     # File upload section
-    uploaded_files = st.file_uploader("Supported files format - xlsx and xls", type=['xlsx', 'xls'], accept_multiple_files=True)
-
+    uploaded_files = st.file_uploader(
+        f"Upload {selected_report_type} files (xlsx/xls)",
+        type=['xlsx', 'xls'],
+        accept_multiple_files=True
+    )
     if uploaded_files:
         for file in uploaded_files:
             try:
@@ -71,50 +117,88 @@ with st.sidebar:
 st.header("Chat with your Data")
 
 if st.session_state.dfs:
-        chat_source = st.radio(
-            "Choose data source:",
-            ["Selected File", "Merged Data"] if st.session_state.merged_df is not None else ["Selected File"]
-        )
+    chat_source = st.radio(
+        "Choose data source:",
+        ["Selected File", "Merged Data"] if st.session_state.merged_df is not None else ["Selected File"]
+    )
 
-        try:
-            # Set current dataframe based on selection
-            if chat_source == "Selected File":
-                st.session_state.current_df = st.session_state.dfs[selected_file]
+    try:
+        # Set current dataframe based on selection
+        if chat_source == "Selected File":
+            st.session_state.current_df = st.session_state.dfs[selected_file]
+        else:
+            st.session_state.current_df = st.session_state.merged_df
+
+
+        def get_user_query():
+            st.header("Query Options")
+            selected_prompt = st.selectbox(
+                "Select your query:",
+                options=list(PREDEFINED_PROMPTS.keys())
+            )
+
+            if selected_prompt == "Custom Query":
+                user_input = st.text_area("Ask about your data:", height=100)
             else:
-                st.session_state.current_df = st.session_state.merged_df
+                user_input = PREDEFINED_PROMPTS[selected_prompt]
+                st.info(f"Prompt for the Selected Options: \n {user_input}")
 
-            # Initialize SmartDataframe with current data
-            if st.session_state.current_df is not None:
-                try:
-                    smart_df = SmartDataframe(st.session_state.current_df, config={'llm': llm})
+            return user_input
 
-                    # Chat input
-                    user_input = st.text_area("Ask about your data:", height=100)
-                    if user_input:  # Remove last_input check
+        # Initialize SmartDataframe with report-specific context
+        if st.session_state.current_df is not None:
+            try:
+                # Initialize SmartDataframe with context-aware LLM
+                smart_df = SmartDataframe(
+                    st.session_state.current_df,
+                    config={
+                        'llm': llm,
+                        'conversational': True,
+                        'custom_prompts': {
+                            'system': SYSTEM_MESSAGES[st.session_state.report_type],
+                            'user': lambda query: f"""
+                        Context: {SYSTEM_MESSAGES[st.session_state.report_type]}
+                        Question: {query}
+                        Please analyze the data based on this context.
+                    """
+                        }
+                    }
+                )
+                # Create two columns for chat input and button
+                # col1, col2 = st.columns([4, 1])
+
+                # with col1:
+
+                # user_input = st.text_area("Ask about your data:", height=100)
+                user_input = get_user_query()
+                # with col2:
+                # Add button aligned with text area
+                if st.button("Send", key="chat_button"):
+                    if user_input:
                         try:
                             response = smart_df.chat(user_input)
-                            # Check if response is a DataFrame
+
                             if isinstance(response, pd.DataFrame):
-                                st.table(response)  # Display as table
+                                st.table(response)
                             else:
-                                st.write(response)  # Display as regular text
+                                st.write(response)
 
                             st.session_state.messages.append({"role": "user", "content": user_input})
                             st.session_state.messages.append({"role": "assistant", "content": str(response)})
                         except Exception as e:
                             st.error(f"Chat error: {str(e)}")
 
-                    # Display chat history
-                    chat_container = st.container()
-                    with chat_container:
-                        for message in reversed(st.session_state.messages):
-                            with st.chat_message(message["role"]):
-                                st.write(message["content"])
+                        # Display chat history
+                        chat_container = st.container()
+                        with chat_container:
+                            for message in reversed(st.session_state.messages):
+                                with st.chat_message(message["role"]):
+                                    st.write(message["content"])
 
-                except Exception as e:
-                    st.error(f"Error processing data: {str(e)}")
-        except Exception as e:
-            st.error(f"Error processing data: {str(e)}")
+            except Exception as e:
+                st.error(f"Error processing data: {str(e)}")
+    except Exception as e:
+        st.error(f"Error processing data: {str(e)}")
 
 # After the file preview section, add dashboard components
 if st.session_state.dfs and selected_file:
